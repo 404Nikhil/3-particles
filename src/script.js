@@ -1,69 +1,93 @@
-import './style.css'
-import * as THREE from 'three'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import * as dat from 'dat.gui'
+import './style.css';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import * as dat from 'dat.gui';
 
 // Debug
-const gui = new dat.GUI()
+const gui = new dat.GUI();
 
 // Canvas
-const canvas = document.querySelector('canvas.webgl')
+const canvas = document.querySelector('canvas.webgl');
 
 // Scene
-const scene = new THREE.Scene()
+const scene = new THREE.Scene();
 
 // Objects
-const geometry = new THREE.TorusGeometry( .7, .2, 16, 100 );
+const torusGeometry = new THREE.TorusKnotGeometry(0.5, 0.2, 100, 50);
+const particlesGeometry = new THREE.BufferGeometry();
+const particlesCnt = 0;
 
-// Materials
+const posArray = new Float32Array(particlesCnt * 3);
 
-const material = new THREE.MeshBasicMaterial()
-material.color = new THREE.Color(0xff0000)
+// xyz
+for (let i = 0; i < particlesCnt * 3; i++) {
+  posArray[i] = (Math.random() - 0.5) * 5;
+}
+
+particlesGeometry.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+
+const material = new THREE.PointsMaterial({
+  size: 0.005,
+  vertexColors: true, // Enable vertex colors
+});
+
+// Set up a color gradient from bright purple to dark purple
+const colorStart = new THREE.Color('#FF00FF');
+const colorEnd = new THREE.Color('#D013F4'); 
+
+const colors = [];
+
+for (let i = 0; i < torusGeometry.attributes.position.count; i++) {
+  // Calculate the progress of the loop as a percentage
+  const progress = i / torusGeometry.attributes.position.count;
+
+  // Interpolate the color between colorStart and colorEnd based on the progress
+  const color = new THREE.Color().copy(colorStart).lerp(colorEnd, progress);
+
+  // Push the color for each vertex
+  colors.push(color.r, color.g, color.b);
+}
+
+torusGeometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
 
 // Mesh
-const sphere = new THREE.Mesh(geometry,material)
-scene.add(sphere)
+const torus = new THREE.Points(torusGeometry, material);
+const particleMesh = new THREE.Points(particlesGeometry, material);
+scene.add(torus, particleMesh);
 
 // Lights
-
-const pointLight = new THREE.PointLight(0xffffff, 0.1)
-pointLight.position.x = 2
-pointLight.position.y = 3
-pointLight.position.z = 4
-scene.add(pointLight)
+const pointLight = new THREE.PointLight(0xffffff, 0.1);
+pointLight.position.x = 300;
+pointLight.position.y = 600;
+pointLight.position.z = 100;
+scene.add(pointLight);
 
 /**
  * Sizes
  */
 const sizes = {
-    width: window.innerWidth,
-    height: window.innerHeight
-}
+  width: window.innerWidth,
+  height: window.innerHeight,
+};
 
-window.addEventListener('resize', () =>
-{
-    // Update sizes
-    sizes.width = window.innerWidth
-    sizes.height = window.innerHeight
+// Mouse move event listener
+let mouseX = 0;
+let mouseY = 0;
 
-    // Update camera
-    camera.aspect = sizes.width / sizes.height
-    camera.updateProjectionMatrix()
-
-    // Update renderer
-    renderer.setSize(sizes.width, sizes.height)
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-})
+canvas.addEventListener('mousemove', (event) => {
+  mouseX = (event.clientX / sizes.width) * 2 - 1;
+  mouseY = -(event.clientY / sizes.height) * 2 + 1;
+});
 
 /**
  * Camera
  */
 // Base camera
-const camera = new THREE.PerspectiveCamera(75, sizes.width / sizes.height, 0.1, 100)
-camera.position.x = 0
-camera.position.y = 0
-camera.position.z = 2
-scene.add(camera)
+const camera = new THREE.PerspectiveCamera(75, sizes.width / sizes.height, 1, 1000);
+camera.position.x = 0;
+camera.position.y = 0;
+camera.position.z = 2;
+scene.add(camera);
 
 // Controls
 // const controls = new OrbitControls(camera, canvas)
@@ -73,33 +97,80 @@ scene.add(camera)
  * Renderer
  */
 const renderer = new THREE.WebGLRenderer({
-    canvas: canvas
-})
-renderer.setSize(sizes.width, sizes.height)
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+  canvas: canvas,
+});
+renderer.setSize(sizes.width, sizes.height);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 5));
 
 /**
  * Animate
  */
+const clock = new THREE.Clock();
 
-const clock = new THREE.Clock()
+const tick = () => {
+  const elapsedTime = clock.getElapsedTime();
 
-const tick = () =>
-{
+  // Update objects
+  torus.rotation.z = 0* elapsedTime;
 
-    const elapsedTime = clock.getElapsedTime()
+  // Distort torus geometry and sphere based on mouse position
+  distortGeometry();
 
-    // Update objects
-    sphere.rotation.y = .5 * elapsedTime
+  // Render
+  renderer.render(scene, camera);
 
-    // Update Orbital Controls
-    // controls.update()
+  // Call tick again on the next frame
+  window.requestAnimationFrame(tick);
+};
 
-    // Render
-    renderer.render(scene, camera)
+tick();
 
-    // Call tick again on the next frame
-    window.requestAnimationFrame(tick)
+/**
+ * Distort torus geometry based on mouse position
+ */
+function distortGeometry() {
+  const time = performance.now() * 0.005;
+  const positionAttribute = torusGeometry.getAttribute('position');
+
+  for (let i = 0; i < positionAttribute.count; i++) {
+    const vertex = new THREE.Vector3(); // Create a temporary vertex
+    vertex.fromBufferAttribute(positionAttribute, i);
+
+    const distance = new THREE.Vector2(vertex.x, vertex.y).distanceTo(new THREE.Vector2(mouseX, mouseY));
+    const amplitude = 0.4; // Adjust this value to control the distortion strength
+
+    // Distort only when mouse is over
+    const displacement = Math.sin(5 * distance - time) * amplitude;
+    vertex.z = displacement;
+
+    // Update the buffer attribute with the modified vertex
+    positionAttribute.setXYZ(i, vertex.x, vertex.y, vertex.z);
+  }
+
+  // Ensure the attribute is updated
+  positionAttribute.needsUpdate = true;
 }
 
-tick()
+// Reset geometry function
+function resetGeometry() {
+  const positionAttribute = torusGeometry.getAttribute('position');
+
+  for (let i = 0; i < positionAttribute.count; i++) {
+    const vertex = new THREE.Vector3(); // Create a temporary vertex
+    vertex.fromBufferAttribute(positionAttribute, i);
+
+    // Reset the z-coordinate to 0
+    vertex.z = 0;
+
+    // Update the buffer attribute with the modified vertex
+    positionAttribute.setXYZ(i, vertex.x, vertex.y, vertex.z);
+  }
+
+  // Ensure the attribute is updated
+  positionAttribute.needsUpdate = true;
+}
+
+// Event listener for mouse leave to reset geometry
+canvas.addEventListener('mouseleave', () => {
+  resetGeometry();
+});
